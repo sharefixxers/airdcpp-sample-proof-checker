@@ -1,0 +1,46 @@
+{
+  "name": "airdcpp-sample-proof-checker",
+  "version": "1.2.32-beta",
+  "description": "Checks release folders for missing Sample (with a recognized video file) or Proof subfolders, and searches/redownloads just that subfolder if needed.",
+  "main": "dist/main.js",
+  "license": "MIT",
+  "private": false,
+  "author": {
+    "name": "ShareFixxers"
+  },
+  "keywords": [
+    "airdcpp",
+    "airdcpp-extensions",
+    "airdcpp-extensions-public"
+  ],
+  "bugs": "https://github.com/sharefixxers/airdcpp-sample-proof-checker/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sharefixxers/airdcpp-sample-proof-checker.git"
+  },
+  "scripts": {
+    "build": "webpack"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "airdcpp-extension": "^1.5.1",
+    "airdcpp-extension-settings": "^1.2.1"
+  },
+  "devDependencies": {
+    "webpack": "^5.94.0",
+    "webpack-cli": "^5.1.4"
+  },
+  "airdcpp": {
+    "apiVersion": 1,
+    "minApiFeatureLevel": 4,
+    "signalReady": false
+  },
+  "homepage": "https://github.com/sharefixxers/airdcpp-sample-proof-checker#readme",
+  "allowScripts": {
+    "bufferutil@4.1.0": true,
+    "es5-ext@0.10.64": true,
+    "utf-8-validate@5.0.10": true
+  }
+}
