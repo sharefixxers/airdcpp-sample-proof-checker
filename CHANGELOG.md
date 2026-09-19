@@ -1,3 +1,122 @@
+## Notes (1.2.40-beta)
+
+New: a release no longer has to finish downloading before a missing
+Sample/Proof starts being searched for. As soon as a release is
+queued for download, its planned file list (available immediately,
+even before anything has downloaded) is checked for an SFV and a
+Sample/Proof entry; if Sample and/or Proof is genuinely absent from
+that list, the search starts right away, in parallel with the main
+download, instead of only after it finishes. The check after a
+completed download stays in place as a safety net (e.g. for a case
+where the early check couldn't read the file list). The retry
+mechanism no longer wrongly gives up on a redownload attempt just
+because the release folder doesn't exist yet at the very first
+attempt (only if it existed before and then disappeared).
+
+## Notes (1.2.39-beta)
+
+The diagnostic logging added across 1.2.36-1.2.37-beta while tracking
+down the 1.2.38-beta bug (the "Debug: ..." lines, the completed-
+download hook's "hook fired for" / share_roots / folder-contents
+lines) has all been removed now that it's served its purpose -- the
+system log is back to only logging actual events (searches, found/
+missing warnings, retries given up, registration status) instead of
+a full trace of every internal decision. No functional change.
+
+## Notes (1.2.38-beta)
+
+Real bug found and fixed via a diagnostic log from a live install: the
+"search now instead" immediate retry (see "Notes (1.2.35-beta)" below)
+could be silently swallowed. The shared search queue throttles repeat
+searches for the same release+subfolder within a 5-minute window, to
+avoid hammering the search infrastructure when the check runs more
+than once for the same folder in quick succession (e.g. once right
+after the initial download completes, again once a merged Sample or
+Proof redownload finishes the bundle a second time). That throttle had
+no awareness of the immediate-retry feature, so if a forced "search
+right now" landed within 5 minutes of the previous real search for
+that exact subfolder, it dispatched no search and logged nothing --
+the log line promising an immediate search appeared, but the next
+actual search only happened a full `retry_interval_minutes` later,
+same as if the immediate-retry feature didn't exist. Confirmed via a
+real-world log (immediate-retry logged at one timestamp, the actual
+search only appearing exactly `retry_interval_minutes` later) and
+reproduced standalone before fixing: the immediate-retry path now
+clears that throttle for its own release+subfolder first, so the
+promised search actually happens right away.
+
+## Notes (1.2.37-beta)
+
+Diagnostic build, continued: the 1.2.36-beta logging proved the
+completed-download hook fires correctly and reads the right folder,
+but a real test (a rared release with a Proof folder and no Sample,
+all settings at their defaults) still produced no "Sample folder
+missing" warning and no search at all. A from-scratch reconstruction
+of that exact scenario against this source runs the check correctly
+end to end, so the internal check() function now logs its own
+decision at every step instead of only at entry/exit: whether the
+release is treated as a Sample/Proof folder itself, the `hasSfv`
+result, the subs-folder/excluded-group decision, both `check_sample`/
+`check_proof` setting values and whether the (currently unrestricted)
+share-folder restriction allows the folder, and whether a Sample/Proof
+subfolder was actually found. Also logs the share_roots the client
+reports when the hook fires, to settle whether a folder outside the
+configured share roots plays any role. No functional change --
+whichever line is the last one to appear in the next real test pins
+down the exact step that silently stops.
+
+## Notes (1.2.36-beta)
+
+Diagnostic build: the automatic check after a completed download logs
+nothing at all when the hook that should trigger it either never fires
+or exits before reaching the actual Sample/Proof check -- neither case
+left any trace in the system log before this. Now logged, every time,
+regardless of `log_events` behavior elsewhere:
+
+- Whether the completed-download hook registered successfully at
+  startup ("Automatic check after a completed download is active.")
+  or failed (previously only went to the console, invisible in the
+  client's own system log).
+- When the hook fires for a finished download: the exact target
+  folder path AirDC++ reported.
+- The folder's contents at that exact moment (proves or disproves a
+  timing issue -- e.g. the SFV genuinely not being there yet when the
+  hook fires, versus the check simply never running at all).
+
+No behavior change to the check itself. Once the resulting log lines
+are seen, the actual fix can be targeted precisely instead of guessed.
+
+## Notes (1.2.35-beta)
+
+The automatic check right after a completed download no longer waits
+`retry_interval_minutes` before its first Sample/Proof search -- it now
+searches immediately, same as a manual check
+(`/sampleproofcheck`/context menu/whole-share scan) always has. If that
+first search comes up empty, further retries still wait
+`retry_interval_minutes` apart as before, up to `retry_max_hours`. The
+now-unused distinction between an automatic and a manual check was
+removed from the internal check function.
+
+## Notes (1.2.34-beta)
+
+Fixed a false negative: a release folder was only checked for a missing
+Sample/Proof if it contained a `.rar`/`.r00`-style file, on top of the
+existing `.sfv` requirement. A non-rared single-file release (posted as
+one `.mkv`/`.mp4` with just an `.sfv` for that file, which is common for
+WEB releases) never contained a `.rar`/`.r00` file, so it never got
+checked at all -- the scan logged "complete" with no warning even
+though the Sample was genuinely missing. The check now runs for any
+folder that contains an `.sfv` file, whether or not the release is
+rared; folders with no SFV at all (DIRFIX/PROOFFIX-style repacks) are
+still skipped, unchanged from before.
+
+## Notes (1.2.33-beta)
+
+Editorial pass over this file: removed meta-commentary about how/why a
+change came about (phrasing like "requested directly") from every
+changelog entry, keeping only what actually changed. No functional
+change.
+
 ## Notes (1.2.32-beta)
 
 Cosmetic-only pass, requested directly: every user-facing/prose mention of

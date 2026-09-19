@@ -201,7 +201,15 @@ module.exports = function (e, t) {
         } catch (e) {
           releaseDirExists = !1;
         }
-        if (!releaseDirExists) {
+        if (releaseDirExists) {
+          state.everExisted = !0;
+        } else if (state.everExisted) {
+          // Only treat this as "the release was removed" once the folder
+          // has actually been seen to exist before -- an early check
+          // triggered right when a bundle is queued (before any of it has
+          // downloaded yet) can legitimately run its very first attempt
+          // before the download has created the folder at all, and that
+          // is not the same thing as the release having been deleted.
           retryState.delete(key);
           return void (await d(
             `[Sample/Proof-check] Release folder no longer exists -- canceling ${subFolderName} redownload retry for: ${o.basename(releaseDir)}`,
@@ -231,10 +239,19 @@ module.exports = function (e, t) {
     const existing = retryState.get(key);
     if (existing) {
       if (!immediateFirst) return;
-      
-      
-      
-      
+
+      // The shared search queue below (see "l"/"m") throttles repeat
+      // searches for the same release+subfolder within a 5-minute window,
+      // to avoid hammering the search infrastructure if this function gets
+      // triggered more than once for the same folder in quick succession
+      // (e.g. once right after the initial download completes, again once
+      // a merged Sample/Proof redownload finishes the bundle a second
+      // time). Without clearing that throttle here, this "search right
+      // now" promise is silently absorbed with no search and no log line
+      // at all -- the user just sees the next *scheduled* retry fire a
+      // full retry_interval_minutes later instead, with no indication why.
+      l.delete(releaseDir.replace(/[\\/]+$/, '') + '::' + subFolderName.toLowerCase());
+
       clearTimeout(existing.timer);
       existing.timer = setTimeout(attempt, 0);
       await d(
@@ -247,6 +264,7 @@ module.exports = function (e, t) {
     const firstDelayMs = immediateFirst ? 0 : maxHours > 0 ? intervalMs : 0;
     retryState.set(key, {
       attempts: 0,
+      everExisted: !1,
       timer: setTimeout(attempt, firstDelayMs),
     });
   }
@@ -414,56 +432,62 @@ module.exports = function (e, t) {
       return !1;
     },
     y = async (e) => hasSampleVideo(e, getSampleVideoRegex()),
-    b = async (e, isAutomatic) => {
+    b = async (e) => {
       const bn0 = o.basename(e).toLowerCase();
-      if ('sample' === bn0 || 'proof' === bn0) return;
-      if (!(await hasSfv(e))) return;
-      if (
-        !((e) => {
-          const t = o.basename(e).toLowerCase();
-          return 'subs' === t || 'sub' === t || t.includes('subpack');
-        })(e) &&
-        !((e) => {
-          const t = (u.getValue('excluded_groups') || '')
-            .split(',')
-            .map((e) => e.trim().toLowerCase())
-            .filter(Boolean);
-          if (0 === t.length) return !1;
-          const n = o.basename(e).match(/-([A-Za-z0-9]+)$/);
-          return !!n && t.includes(n[1].toLowerCase());
-        })(e)
-      ) {
-        if (u.getValue('check_sample') && (await isWithinRestrictedShareFolder(e, 'sample_restrict_to_share_folder'))) {
-          const t = await v(e, 'sample');
-          (t && (await y(t))) ||
-            (await d(
-              `[Sample/Proof-check] Sample folder missing or contains no recognized video file: ${e}`,
-              'warning',
-            ),
-            u.getValue('redownload') &&
-              scheduleRetry(
-                e,
-                'Sample',
-                !1,
-                async () => {
-                  const t = await v(e, 'sample');
-                  return !(!t || !(await y(t)));
-                },
-                !isAutomatic,
-              ));
-        }
-        if (u.getValue('check_proof') && (await isWithinRestrictedShareFolder(e, 'proof_restrict_to_share_folder'))) {
-          const hasProof = await v(e, 'proof');
-          hasProof ||
-            (u.getValue('redownload') &&
-              scheduleRetry(
-                e,
-                'Proof',
-                !0,
-                async () => !!(await v(e, 'proof')),
-                !isAutomatic,
-              ));
-        }
+      if ('sample' === bn0 || 'proof' === bn0) {
+        return;
+      }
+      const sfvPresent = await hasSfv(e);
+      if (!sfvPresent) return;
+      const isSubsFolder = (() => {
+        const t = o.basename(e).toLowerCase();
+        return 'subs' === t || 'sub' === t || t.includes('subpack');
+      })();
+      const excludedGroupMatch = (() => {
+        const t = (u.getValue('excluded_groups') || '')
+          .split(',')
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean);
+        if (0 === t.length) return !1;
+        const n = o.basename(e).match(/-([A-Za-z0-9]+)$/);
+        return !!n && t.includes(n[1].toLowerCase());
+      })();
+      if (isSubsFolder || excludedGroupMatch) return;
+      const checkSampleSetting = u.getValue('check_sample');
+      const sampleUnrestricted = await isWithinRestrictedShareFolder(e, 'sample_restrict_to_share_folder');
+      if (checkSampleSetting && sampleUnrestricted) {
+        const t = await v(e, 'sample');
+        const validSample = t && (await y(t));
+        validSample ||
+          (await d(
+            `[Sample/Proof-check] Sample folder missing or contains no recognized video file: ${e}`,
+            'warning',
+          ),
+          u.getValue('redownload') &&
+            scheduleRetry(
+              e,
+              'Sample',
+              !1,
+              async () => {
+                const t = await v(e, 'sample');
+                return !(!t || !(await y(t)));
+              },
+              !0,
+            ));
+      }
+      const checkProofSetting = u.getValue('check_proof');
+      const proofUnrestricted = await isWithinRestrictedShareFolder(e, 'proof_restrict_to_share_folder');
+      if (checkProofSetting && proofUnrestricted) {
+        const hasProof = await v(e, 'proof');
+        hasProof ||
+          (u.getValue('redownload') &&
+            scheduleRetry(
+              e,
+              'Proof',
+              !0,
+              async () => !!(await v(e, 'proof')),
+              !0,
+            ));
       }
     },
     getScanConcurrency = () => Math.max(1, Number(u.getValue('scan_concurrency')) || 4),
@@ -476,7 +500,7 @@ module.exports = function (e, t) {
       } catch (e) {
         return [];
       }
-      if (entries.some((entry) => entry.isFile() && a.test(entry.name))) {
+      if (entries.some((entry) => entry.isFile() && (a.test(entry.name) || sfvRe.test(entry.name)))) {
         try {
           await b(dirPath);
         } catch (err) {
@@ -526,9 +550,106 @@ module.exports = function (e, t) {
     },
     _ = async (bundle, accept) => {
       accept();
-      if (!bundle || !bundle.target) return;
+      const rawTarget = bundle && bundle.target;
+      if (!rawTarget) {
+        await d(
+          `[Sample/Proof-check] Completed-download hook fired but the bundle has no usable "target" field (raw bundle: ${JSON.stringify(bundle)}).`,
+          'warning',
+        );
+        return;
+      }
+      const target = rawTarget.replace(/[\\/]+$/, '');
+      b(target);
+    },
+    // Runs right when a release is queued for download, instead of waiting
+    // for it to finish -- so a genuinely missing Sample/Proof (missing from
+    // the queued file list itself, not just "not downloaded yet") starts
+    // being searched for immediately, in parallel with the main download,
+    // rather than only after it. Uses the queued bundle's own file list
+    // (available from the moment the bundle is created, even before any of
+    // it has been downloaded) instead of reading the folder on disk, since
+    // the folder may not exist yet at this point. The check after a
+    // completed download (see "_" above) still runs as a safety net for
+    // anything this early check misses (e.g. it couldn't read the file
+    // list, or a Sample/Proof got added to the release after it was
+    // queued).
+    checkQueuedBundleEarly = async (bundle) => {
+      if (!bundle || !bundle.target) {
+        await d(
+          `[Sample/Proof-check] queue_bundle_added fired but the bundle has no usable "target" field (raw bundle: ${JSON.stringify(bundle)}).`,
+          'warning',
+        );
+        return;
+      }
       const target = bundle.target.replace(/[\\/]+$/, '');
-      b(target, !0);
+      const bn0 = o.basename(target).toLowerCase();
+      if ('sample' === bn0 || 'proof' === bn0) return;
+
+      let files;
+      try {
+        // A bundle's own file list is available immediately, listing every
+        // file it will download (name/relative path) even before any of
+        // them exist on disk -- 2000 is far more than any real release
+        // needs, so this is a single request rather than paging through it.
+        files = await e.get(`queue/bundles/${bundle.id}/files/0/2000`);
+      } catch (err) {
+        return;
+      }
+      if (!Array.isArray(files) || !files.length) return;
+
+      const norm = (p) => (p || '').replace(/\\/g, '/');
+      const topLevelFolder = (relPath) => {
+        const parts = norm(relPath).split('/').filter(Boolean);
+        return parts.length > 1 ? parts[0].toLowerCase() : null;
+      };
+
+      const sfvPresent = files.some((file) => sfvRe.test(o.basename(norm(file.name || ''))));
+      if (!sfvPresent) return;
+
+      const isSubsFolder = 'subs' === bn0 || 'sub' === bn0 || bn0.includes('subpack');
+      const excludedGroupMatch = (() => {
+        const groups = (u.getValue('excluded_groups') || '')
+          .split(',')
+          .map((group) => group.trim().toLowerCase())
+          .filter(Boolean);
+        if (0 === groups.length) return !1;
+        const match = bn0.match(/-([A-Za-z0-9]+)$/);
+        return !!match && groups.includes(match[1].toLowerCase());
+      })();
+      if (isSubsFolder || excludedGroupMatch) return;
+
+      const sampleExtRe = getSampleVideoRegex();
+      const plannedSample = files.some(
+        (file) => topLevelFolder(file.name) === 'sample' && sampleExtRe.test(o.basename(norm(file.name || ''))),
+      );
+      const plannedProof = files.some((file) => topLevelFolder(file.name) === 'proof');
+
+      if (u.getValue('check_sample') && !plannedSample && u.getValue('redownload')) {
+        const sampleUnrestricted = await isWithinRestrictedShareFolder(target, 'sample_restrict_to_share_folder');
+        if (sampleUnrestricted) {
+          await d(
+            `[Sample/Proof-check] Release queued without a Sample among its files -- searching now: ${target}`,
+            'info',
+          );
+          scheduleRetry(
+            target,
+            'Sample',
+            !1,
+            async () => {
+              const t = await v(target, 'sample');
+              return !(!t || !(await y(t)));
+            },
+            !0,
+          );
+        }
+      }
+
+      if (u.getValue('check_proof') && !plannedProof && u.getValue('redownload')) {
+        const proofUnrestricted = await isWithinRestrictedShareFolder(target, 'proof_restrict_to_share_folder');
+        if (proofUnrestricted) {
+          scheduleRetry(target, 'Proof', !0, async () => !!(await v(target, 'proof')), !0);
+        }
+      }
     };
 
   function checkMenuAccess(menuItem, permissions) {
@@ -704,8 +825,30 @@ module.exports = function (e, t) {
         id: 'sample_proof_bundle_finished',
         name: 'Sample/Proof check on completed download',
       });
-    } catch (e) {
-      console.error(`Could not register hook: ${e.message}`);
+      await d('[Sample/Proof-check] Automatic check after a completed download is active.', 'info');
+    } catch (err) {
+      await d(
+        `[Sample/Proof-check] Could not register the completed-download hook, automatic checks are disabled: ${err.message}`,
+        'error',
+      );
+      console.error(`Could not register hook: ${err.message}`);
+    }
+    try {
+      await e.addListener('queue', 'queue_bundle_added', (bundle) => {
+        checkQueuedBundleEarly(bundle).catch((err) => {
+          console.error(`Could not run the early Sample/Proof check: ${err.message}`);
+        });
+      });
+      await d(
+        '[Sample/Proof-check] Early check for a Sample/Proof missing from a newly queued release is active.',
+        'info',
+      );
+    } catch (err) {
+      await d(
+        `[Sample/Proof-check] Could not register the queue_bundle_added listener, the early check is disabled (the check after a completed download still works): ${err.message}`,
+        'error',
+      );
+      console.error(`Could not register queue_bundle_added listener: ${err.message}`);
     }
     const sampleProofHelpText = `
 Sample/Proof-check commands

@@ -93,7 +93,3 @@ timing of that first attempt:
 
 ## What is new in each version
 [Changelog](https://github.com/sharefixxers/airdcpp-sample-proof-checker/blob/master/CHANGELOG.md)
-
-## Troubleshooting
-Enable extension debug mode from application settings and check the extension error logs
-`(Settings\Extensions\airdcpp-sample-proof-checker\logs)` for additional information.

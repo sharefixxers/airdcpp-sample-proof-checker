@@ -1,6 +1,6 @@
 {
   "name": "airdcpp-sample-proof-checker",
-  "version": "1.2.32-beta",
+  "version": "1.2.40-beta",
   "description": "Checks release folders for missing Sample (with a recognized video file) or Proof subfolders, and searches/redownloads just that subfolder if needed.",
   "main": "dist/main.js",
   "license": "MIT",
